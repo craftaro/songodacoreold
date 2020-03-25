@@ -7,11 +7,17 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 public class DataManagerAbstract {
 
     protected final DatabaseConnector databaseConnector;
     protected final Plugin plugin;
+
+    private static Map<String, ScheduledExecutorService> threads = new HashMap<>();
 
     public DataManagerAbstract(DatabaseConnector databaseConnector, Plugin plugin) {
         this.databaseConnector = databaseConnector;
@@ -25,12 +31,21 @@ public class DataManagerAbstract {
         return this.plugin.getDescription().getName().toLowerCase() + '_';
     }
 
+    /**
+     * Deprecated because it is often times not accurate to its use case.
+     */
+    @Deprecated
     protected int lastInsertedId(Connection connection) {
+        return lastInsertedId(connection, null);
+    }
+
+    protected int lastInsertedId(Connection connection, String table) {
+        String select = "SELECT * FROM " + this.getTablePrefix() + table + " ORDER BY id DESC LIMIT 1";
         String query;
         if (this.databaseConnector instanceof SQLiteConnector) {
-            query = "SELECT last_insert_rowid()";
+            query = table == null ? "SELECT last_insert_rowid()" : select;
         } else {
-            query = "SELECT LAST_INSERT_ID()";
+            query = table == null ? "SELECT LAST_INSERT_ID()" : select;
         }
 
         try (Statement statement = connection.createStatement()) {
@@ -46,7 +61,7 @@ public class DataManagerAbstract {
     /**
      * Queue a task to be run asynchronously. <br>
      * TODO: This needs to be separated from BukkitScheduler
-     * 
+     *
      * @param runnable task to run
      */
     public void async(Runnable runnable) {
@@ -55,10 +70,21 @@ public class DataManagerAbstract {
 
     /**
      * Queue a task to be run synchronously.
-     * 
+     *
      * @param runnable task to run on the next server tick
      */
     public void sync(Runnable runnable) {
         Bukkit.getScheduler().runTask(this.plugin, runnable);
+    }
+
+    /**
+     * Queue a task to be run synchronously on a new thread.
+     *
+     * @param runnable  task to run on the next server tick
+     * @param threadKey the thread key to run on.
+     */
+    public void sync(Runnable runnable, String threadKey) {
+        threads.computeIfAbsent(threadKey.toUpperCase(),
+                t -> Executors.newSingleThreadScheduledExecutor()).execute(runnable);
     }
 }
